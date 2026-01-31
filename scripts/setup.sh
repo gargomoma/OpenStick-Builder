@@ -35,7 +35,8 @@ apt install -qqy --no-install-recommends \
     zram-tools \
     bc \
     ifupdown2 \
-    mobile-broadband-provider-info
+    mobile-broadband-provider-info \
+    openresolv
 
 # Cleanup
 apt clean
