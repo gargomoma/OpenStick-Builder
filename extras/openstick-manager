@@ -1,0 +1,931 @@
+#!/bin/bash
+
+# OpenStick Manager
+
+# ============================================================================
+# AUTO-SUDO: Force script to run as root with preserved user environment
+# ============================================================================
+if [ "$EUID" -ne 0 ]; then
+    echo ">>> This script requires root privileges. Elevating with sudo..."
+    echo ""
+    exec sudo "$0" "$@"
+fi
+# ============================================================================
+
+set -e
+
+VERSION="1.0"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN="\033[0;36m"
+NC='\033[0m' # No Color
+
+# Check if running as root when needed
+check_sudo() {
+    if [[ "$EUID" -ne 0 ]] && [[ "$1" == "required" ]]; then
+        echo -e "${RED}Error: This operation requires root privileges.${NC}"
+        echo "Please run with sudo or as root user."
+        exit 1
+    fi
+}
+
+# Header function
+header() {
+    clear
+    echo -e "${BLUE}========================================${NC}"
+    echo -e "${CYAN}      OpenStick Manager v$VERSION${NC}"
+    echo -e "${BLUE}========================================${NC}"
+    echo ""
+}
+
+# Pause function
+pause() {
+    echo ""
+    read -p "Press Enter to continue..."
+}
+
+# USB Gadget Management
+usb_menu() {
+    while true; do
+        header
+        echo "USB GADGET MANAGEMENT"
+        echo "===================="
+        echo "1) Edit USB Gadget Config"
+        echo "2) Stop USB Gadget"
+        echo "3) Start USB Gadget"
+        echo "4) Check USB Gadget Status"
+        echo "0) Back to Main Menu"
+        echo ""
+        read -p "Select option [0-4]: " choice
+
+        case $choice in
+            1) 
+                header
+                echo "Opening USB gadget config in nano..."
+                pause
+                sudo nano /etc/msm8916-usb-gadget.conf
+                ;;
+            2) 
+                header
+                echo "Stopping USB gadget..."
+                sudo msm8916-usb-gadget.sh stop
+                echo -e "${GREEN}USB gadget stopped.${NC}"
+                pause
+                ;;
+            3) 
+                header
+                echo "Starting USB gadget..."
+                sudo msm8916-usb-gadget.sh start
+                echo -e "${GREEN}USB gadget started.${NC}"
+                pause
+                ;;
+            4) 
+                header
+                echo "USB Gadget Status:"
+                sudo msm8916-usb-gadget.sh status
+                pause
+                ;;
+            0) return ;;
+            *) echo -e "${RED}Invalid option${NC}"; pause ;;
+        esac
+    done
+}
+
+# WiFi Management
+wifi_menu() {
+    while true; do
+        header
+        echo "WIFI MANAGEMENT"
+        echo "==============="
+        
+        # === ACCURATE WIFI STATUS DETECTION ===
+        local wifi_client=""
+        local hotspot_active=false
+        local wlan0_state="DISCONNECTED"
+        
+        # Check if wlan0 exists
+        if ! ip link show wlan0 &>/dev/null; then
+            echo -e "${RED}WiFi interface wlan0 not found!${NC}"
+        else
+            # Check if connected as CLIENT to an AP
+            wifi_client=$(nmcli -t -f NAME,TYPE,DEVICE con show --active 2>/dev/null | \
+                grep -E '^[^:]+:802-11-wireless:wlan0$' | cut -d: -f1 | head -1)
+            
+            # Check if hotspot connection is active
+            if nmcli -t -f NAME,TYPE,DEVICE con show --active 2>/dev/null | \
+                grep -q "^hotspot:802-11-wireless:wlan0$"; then
+                hotspot_active=true
+            fi
+            
+            # Determine state for display
+            if [[ "$hotspot_active" == true ]]; then
+                wlan0_state="HOTSPOT MODE (AP)"
+            elif [[ -n "$wifi_client" ]]; then
+                wlan0_state="CLIENT: $wifi_client"
+            else
+                wlan0_state="DISCONNECTED"
+            fi
+        fi
+        
+        echo -e "${YELLOW}WiFi Status (wlan0): ${NC}${wlan0_state}"
+		echo "-- WiFi IP Address --"		
+		ip -br addr show wlan0 | awk '{print $3}' | cut -d/ -f1
+        echo ""
+        
+        # === MENU OPTIONS ===
+        echo "1) Enable Hotspot"
+        echo "2) Disable Hotspot"
+        echo "3) Scan for WiFi Networks"
+        echo "4) Connect to WiFi AP"
+        echo "5) Show WiFi IP Address"
+        echo "0) Back to Main Menu"
+        echo ""
+        read -p "Select option [0-5]: " choice
+
+        case $choice in
+            1) 
+                header
+                echo "Enabling hotspot on wlan0..."
+                
+                # Stop any active client connection on wlan0 first
+                ACTIVE_CLIENT=$(nmcli -t -f NAME,TYPE,DEVICE con show --active 2>/dev/null | \
+                    grep '802-11-wireless:wlan0' | cut -d: -f1)
+                if [[ -n "$ACTIVE_CLIENT" && "$ACTIVE_CLIENT" != "hotspot" ]]; then
+                    echo "Disconnecting from current AP: $ACTIVE_CLIENT"
+                    sudo nmcli connection down "$ACTIVE_CLIENT" 2>/dev/null || true
+                fi
+                
+                # Ensure hotspot connection exists
+                if ! nmcli connection show hotspot &>/dev/null; then
+                    echo -e "${YELLOW}Creating default hotspot connection...${NC}"
+                    sudo nmcli connection add type wifi ifname wlan0 con-name hotspot \
+                        ssid "4G-UFI-XX" autoconnect no \
+                        wifi.mode ap wifi.band bg ipv4.method shared \
+                        802-11-wireless.mode ap 802-11-wireless.band bg
+                fi
+                
+                # Activate hotspot
+                if sudo nmcli connection up hotspot &>/dev/null; then
+                    echo -e "${GREEN}✓ Hotspot ENABLED${NC}"
+                    echo "SSID: 4G-UFI-XX (default)"
+                else
+                    echo -e "${RED}✗ Failed to enable hotspot${NC}"
+                    echo "Check: Is wlan0 free? (not connected to another AP)"
+                fi
+                pause
+                ;;
+            2) 
+                header
+                echo "Disabling hotspot..."
+                if sudo nmcli connection down hotspot &>/dev/null; then
+                    echo -e "${GREEN}✓ Hotspot DISABLED${NC}"
+                else
+                    echo -e "${YELLOW}Hotspot was not active${NC}"
+                fi
+                sudo nmcli connection modify hotspot connection.autoconnect no 2>/dev/null || true
+                pause
+                ;;
+            3) 
+                header
+                echo "Scanning for WiFi networks..."
+                echo -e "${YELLOW}Note: Fresh scan requires sudo${NC}"
+                sudo nmcli device wifi rescan 2>/dev/null && echo "✓ Scan initiated..." || echo "⚠ Using cached results"
+                sleep 2
+                nmcli device wifi list
+                pause
+                ;;
+            4) 
+                header
+                echo "Connect to WiFi Access Point"
+                echo "----------------------------"
+                nmcli device wifi list
+                echo ""
+                read -p "Enter SSID: " ssid
+                [[ -z "$ssid" ]] && { echo -e "${RED}SSID cannot be empty${NC}"; pause; continue; }
+                read -sp "Enter Password: " password
+                echo ""
+                
+                # Disable hotspot first if active
+                if $hotspot_active; then
+                    echo "Disabling hotspot to connect as client..."
+                    sudo nmcli connection down hotspot 2>/dev/null || true
+                fi
+                
+                echo ""
+                if sudo nmcli dev wifi connect "$ssid" password "$password" &>/dev/null; then
+                    echo -e "${GREEN}✓ Successfully connected to '$ssid'${NC}"
+                else
+                    echo -e "${RED}✗ Connection failed${NC}"
+                    echo "Possible reasons:"
+                    echo "  - Wrong password"
+                    echo "  - Hotspot still active (disable first)"
+                    echo "  - Weak signal"
+                fi
+                pause
+                ;;
+            5) 
+                header
+                echo "WiFi IP Address (wlan0):"
+                if ip addr show wlan0 | grep -q "inet "; then
+                    ip -br addr show wlan0 | awk '{print $3}' | cut -d/ -f1
+                else
+                    echo -e "${YELLOW}No IP address assigned (disconnected)${NC}"
+                fi
+                pause
+                ;;
+            0) return ;;
+            *) echo -e "${RED}Invalid option${NC}"; pause ;;
+        esac
+    done
+}
+
+# LTE/4G Management (ENHANCED WITH MMCLI STATUS)
+lte_menu() {
+    # Helper: Detect modem index dynamically
+    get_modem_index() {
+        local idx=$(mmcli -L 2>/dev/null | grep -oP 'modem/\K[0-9]+' | head -1)
+        echo "${idx:-0}"  # Default to 0 if not found
+    }
+    
+    # Helper: Format signal bars
+    signal_bars() {
+        local quality=${1:-0}
+        local bars=$((quality / 20))
+        local bar_str=""
+        for ((i=0; i<5; i++)); do
+            if [[ $i -lt $bars ]]; then
+                bar_str+="█"
+            else
+                bar_str+="░"
+            fi
+        done
+        echo "$bar_str ${quality}%"
+    }
+    
+    # Helper: Show detailed modem status
+    show_modem_status() {
+        local modem_idx=$(get_modem_index)
+		
+		local modem_info=$(mmcli -m "$modem_idx" 2>/dev/null)
+        
+        echo -e "${YELLOW}=== MODEM DIAGNOSTICS (mmcli -m $modem_idx) ===${NC}"
+        
+        # Check if modem exists
+        if ! mmcli -m "$modem_idx" &>/dev/null; then
+            echo -e "${RED}✗ Modem $modem_idx not detected or inaccessible${NC}"
+            echo -e "${YELLOW}Hint: Try 'Restart Modem Stack' to recover hardware${NC}"
+            #return 1
+        else			
+			# Basic info
+			local manufacturer=$(echo "$modem_info" | grep "manufacturer:" | awk -F': ' '{print $2}' | xargs || echo "N/A")
+			local model=$(echo "$modem_info" | grep "model:" | awk -F': ' '{print $2}' | xargs || echo "N/A")
+			local revision=$(echo "$modem_info" | grep "revision:" | awk -F': ' '{print $2}' | xargs || echo "N/A")
+			local imei=$(echo "$modem_info" | grep -A1 "imei:" | grep "imei:" | awk -F': ' '{print $2}' || echo "N/A")
+			
+			echo "Manufacturer : $manufacturer"
+			echo "Model        : $model"
+			echo "Firmware     : $revision"
+			echo "IMEI         : $imei"
+			echo ""
+			
+			# SIM status
+			local sim_state=$(echo "$modem_info" | grep -A2 "Status" | grep "state:" | awk -F': ' '{print $2}' | xargs || echo "unknown")
+			local sim_operator=$(echo "$modem_info" |grep "operator name:" | awk -F': ' '{print $2}' | xargs || echo "N/A")
+			
+			case "$sim_state" in
+				"locked") echo -e "${RED}SIM Status   : LOCKED (needs PIN)${NC}" ;;
+				"absent") echo -e "${RED}SIM Status   : MISSING${NC}" ;;
+				"unknown") echo -e "${YELLOW}SIM Status   : UNKNOWN${NC}" ;;
+				*) echo -e "${GREEN}SIM Status   : READY${NC}" ;;
+			esac
+			[[ "$sim_operator" != "N/A" ]] && echo "SIM Operator : $sim_operator"
+			echo ""
+			
+			# Signal quality
+			local signal=$(echo "$modem_info" | grep -A10 "Status" | grep "signal quality:" | awk -F': ' '{print $2}' | grep -o '[0-9]\+' | head -1 || echo "0")
+			echo "Signal       : $(signal_bars "$signal")"
+			echo ""
+			
+			# Registration & network
+			local reg_state=$(echo "$modem_info" | grep -A10 "3GPP" | grep "registration:" | awk -F': ' '{print $2}' | xargs || echo "unknown")
+			local access_tech=$(echo "$modem_info" | grep -A10 "Status" | grep "access tech:" | awk -F': ' '{print $2}' | xargs || echo "none")
+			local operator=$(echo "$modem_info" | grep -A10 "3GPP" | grep "operator name:" | awk -F': ' '{print $2}' | xargs || echo "N/A")
+			
+			case "$reg_state" in
+				"home") 
+					echo -e "${GREEN}Registration : HOME NETWORK${NC}"
+					;;
+				"roaming") 
+					echo -e "${YELLOW}Registration : ROAMING${NC}"
+					;;
+				"searching") 
+					echo -e "${YELLOW}Registration : SEARCHING...${NC}"
+					;;
+				"denied") 
+					echo -e "${RED}Registration : DENIED${NC}"
+					;;
+				*) 
+					echo -e "${RED}Registration : $reg_state${NC}"
+					;;
+			esac
+			echo "Operator     : $operator"
+			echo "Technology   : $access_tech"
+			echo ""
+			
+			# Data bearer status
+			local bearer_status=$(echo "$modem_info" | grep -A20 "bearer:" | grep "status:" | head -1 | awk -F': ' '{print $2}' | xargs || echo "no bearer")
+			if [[ "$bearer_status" == *"connected"* ]]; then
+				echo -e "${GREEN}Data Bearer  : CONNECTED${NC}"
+				local ip=$(echo "$modem_info" | grep -A30 "ipv4:" | grep "address:" | awk -F': ' '{print $2}' | xargs | cut -d' ' -f1 || echo "N/A")
+				[[ "$ip" != "N/A" ]] && echo "IP Address   : $ip"
+			else
+				echo -e "${YELLOW}Data Bearer  : DISCONNECTED${NC}"
+			fi
+		fi
+    }
+    
+    while true; do
+        header
+        echo "4G/LTE MANAGEMENT"
+        echo "================"
+        echo ""
+        
+        # === MODEMMANAGER STATUS ===
+        if ! systemctl is-active --quiet ModemManager 2>/dev/null; then
+            echo -e "${RED}✗ ModemManager: STOPPED${NC}"
+            echo -e "${YELLOW}Tip: Use 'Restart Modem Stack' to recover${NC}"
+        else
+            echo -e "${GREEN}✓ ModemManager: RUNNING${NC}"
+        fi
+        echo ""
+        
+        # === DETAILED MODEM STATUS ===
+        show_modem_status
+        echo ""
+        
+        # === CONNECTION STATUS ===
+        echo -e "${YELLOW}=== CONNECTION STATUS ===${NC}"
+        if nmcli con show lte &>/dev/null; then
+            if nmcli -t con show --active | grep -q "^lte:"; then
+                echo -e "${GREEN}✓ LTE Connection: ACTIVE${NC}"
+                local ip=$(ip -br addr show wwan0 2>/dev/null | awk '{print $3}' | cut -d/ -f1 | head -1 || echo "N/A")
+                echo "Interface    : wwan0"
+                echo "IP Address   : $ip"
+                local apn=$(nmcli -g gsm.apn con show lte 2>/dev/null || echo "N/A")
+                echo "APN          : $apn"
+                local pin_set=$(nmcli -g gsm.pin con show lte 2>/dev/null | grep -q "[0-9]" && echo "YES" || echo "NO")
+                echo "PIN Config   : $pin_set"
+            else
+                echo -e "${YELLOW}⊘ LTE Connection: CONFIGURED BUT INACTIVE${NC}"
+                echo "Use 'Enable Connection' to activate"
+            fi
+        else
+            echo -e "${RED}⊘ No LTE configuration${NC}"
+            echo "Use 'Setup LTE Connection' to configure APN/PIN"
+        fi
+
+        echo ""
+        echo "1) Setup LTE Connection (APN + PIN)"
+        echo "2) Enable Connection"
+        echo "3) Disable Connection"
+        echo "4) Restart Modem Stack (Full Recovery)"
+        echo "5) Enable Modem Radio (mmcli -m X -e)"
+        echo "6) Delete LTE Configuration"
+        echo "0) Back to Main Menu"
+        echo ""
+        read -p "Select option [0-6]: " choice
+
+        case $choice in
+            1) 
+                header
+                echo "LTE SETUP (APN + PIN)"
+                echo "====================="
+                echo "Current configuration (if exists):"
+                if nmcli con show lte &>/dev/null; then
+                    echo "APN : $(nmcli -g gsm.apn con show lte 2>/dev/null || echo 'N/A')"
+                    echo "PIN : $(nmcli -g gsm.pin con show lte 2>/dev/null | grep -q '[0-9]' && echo 'SET' || echo 'NOT SET')"
+                else
+                    echo "No existing LTE configuration"
+                fi
+                echo ""
+                read -p "Enter APN (e.g., internet.vodafone.net): " apn
+                if [[ -z "$apn" ]]; then
+                    echo -e "${RED}APN cannot be empty!${NC}"
+                    pause
+                    continue
+                fi
+                read -sp "Enter SIM PIN (optional, press Enter to skip): " pin
+                echo ""
+                
+                header
+                echo "Configuring LTE connection..."
+                echo "APN: $apn"
+                [[ -n "$pin" ]] && echo "PIN: *** (hidden)"
+                
+                echo ""
+                read -p "Proceed? (y/n): " confirm
+                [[ "$confirm" != "y" && "$confirm" != "Y" ]] && { echo "Cancelled."; pause; continue; }
+                
+                # Configure LTE
+                echo "Deleting existing LTE connection (if any)..."
+                nmcli connection delete lte 2>/dev/null || true
+                
+                echo "Stopping ModemManager..."
+                systemctl stop ModemManager
+                
+                echo "Creating new LTE connection..."
+                nmcli connection add type gsm ifname wwan0qmi0 con-name lte apn "$apn" 2>/dev/null
+                
+                if [[ -n "$pin" ]]; then
+                    echo "Setting SIM PIN..."
+                    nmcli connection modify lte gsm.pin "$pin"
+                fi
+                
+                echo "Starting ModemManager..."
+                systemctl start ModemManager
+                sleep 5
+                
+                echo "Activating LTE connection..."
+                if nmcli connection up lte 2>/dev/null; then
+                    echo -e "${GREEN}✓ LTE connection established successfully!${NC}"
+                    echo ""
+                    echo "IP Address: $(ip -br addr show wwan0 | awk '{print $3}' | cut -d/ -f1)"
+                else
+                    echo -e "${RED}✗ Failed to activate LTE connection${NC}"
+                    echo "Troubleshooting tips:"
+                    echo "  - Check APN/PIN correctness"
+                    echo "  - Ensure SIM is inserted and unlocked"
+                    echo "  - Try 'Restart Modem Stack' option"
+                    echo "  - Check signal strength in status view"
+                fi
+                pause
+                ;;
+                
+            2)
+                header
+                echo "Enabling LTE Connection..."
+                if ! nmcli con show lte &>/dev/null; then
+                    echo -e "${RED}✗ No LTE configuration found!${NC}"
+                    echo "Run 'Setup LTE Connection' first."
+                    pause
+                    continue
+                fi
+                
+                if nmcli -t con show --active | grep -q "^lte:"; then
+                    echo -e "${YELLOW}⊘ Already connected${NC}"
+                else
+                    if nmcli connection up lte 2>/dev/null; then
+                        echo -e "${GREEN}✓ Connection enabled${NC}"
+                        echo ""
+                        echo "IP Address: $(ip -br addr show wwan0 | awk '{print $3}' | cut -d/ -f1 | head -1 || echo 'N/A')"
+                    else
+                        echo -e "${RED}✗ Failed to enable connection${NC}"
+                        echo "Check modem status and signal strength"
+                    fi
+                fi
+                pause
+                ;;
+                
+            3)
+                header
+                echo "Disabling LTE Connection..."
+                if nmcli connection down lte 2>/dev/null; then
+                    echo -e "${GREEN}✓ Connection disabled${NC}"
+                else
+                    echo -e "${YELLOW}⊘ Connection was not active${NC}"
+                fi
+                pause
+                ;;
+                
+            4)
+                header
+                echo "RESTARTING MODEM STACK"
+                echo "======================"
+                echo "Full hardware recovery sequence:"
+                echo "  1. Stop ModemManager"
+                echo "  2. Power-cycle modem via remoteproc"
+                echo "  3. Restart ModemManager"
+                echo "  4. Enable modem radio"
+                echo "  5. Restore LTE connection"
+                echo ""
+                read -p "Proceed? (y/n): " confirm
+                [[ "$confirm" != "y" && "$confirm" != "Y" ]] && { echo "Cancelled."; pause; continue; }
+                
+                echo ""
+                echo "1. Stopping ModemManager..."
+                systemctl stop ModemManager
+                
+                echo "2. Checking remoteproc state..."
+                if [[ -f /sys/class/remoteproc/remoteproc0/state ]]; then
+                    CURRENT_STATE=$(cat /sys/class/remoteproc/remoteproc0/state 2>/dev/null || echo "unknown")
+                    echo "   Current state: $CURRENT_STATE"
+                else
+                    echo -e "${RED}✗ remoteproc0 not found!${NC}"
+                    echo "Modem hardware may be unavailable"
+                    pause
+                    continue
+                fi
+                
+                echo "3. Powering down modem..."
+                echo stop | tee /sys/class/remoteproc/remoteproc0/state >/dev/null 2>&1
+                sleep 5
+                
+                echo "4. Powering up modem..."
+                echo start | tee /sys/class/remoteproc/remoteproc0/state >/dev/null 2>&1
+                sleep 10  # Longer wait for firmware load
+                
+                echo "5. Starting ModemManager..."
+                systemctl start ModemManager
+                sleep 8
+                
+                echo "6. Detecting modem..."
+                local modem_idx=$(get_modem_index)
+                if mmcli -m "$modem_idx" &>/dev/null; then
+                    echo -e "${GREEN}✓ Modem $modem_idx detected${NC}"
+                    
+                    # Enable radio
+                    echo "7. Enabling modem radio (mmcli -m $modem_idx -e)..."
+                    if mmcli -m "$modem_idx" -e 2>/dev/null; then
+                        echo "   ✓ Radio enabled"
+                    else
+                        echo -e "   ${YELLOW}⊘ Radio enable failed (may already be on)${NC}"
+                    fi
+                    sleep 5
+                    
+                    # Bring up connection if configured
+                    if nmcli con show lte &>/dev/null; then
+                        echo "8. Restoring LTE connection..."
+                        if nmcli connection up lte 2>/dev/null; then
+                            echo -e "${GREEN}✓ LTE connection restored${NC}"
+                            echo ""
+                            echo "IP Address: $(ip -br addr show wwan0 | awk '{print $3}' | cut -d/ -f1 | head -1 || echo 'N/A')"
+                        else
+                            echo -e "${YELLOW}⊘ Connection failed (may be registering)${NC}"
+                            echo "Check status in main menu after 30 seconds"
+                        fi
+                    else
+                        echo -e "${YELLOW}⊘ No LTE configuration found${NC}"
+                        echo "Run 'Setup LTE Connection' to configure APN/PIN"
+                    fi
+                else
+                    echo -e "${RED}✗ Modem NOT detected after restart${NC}"
+                    echo "Hardware issue or firmware load failure"
+                fi
+                pause
+                ;;
+                
+            5)
+                header
+                echo "ENABLE MODEM RADIO (mmcli -m X -e)"
+                echo "=================================="
+                local modem_idx=$(get_modem_index)
+                echo "Detected modem index: $modem_idx"
+                echo ""
+                echo "This sends the 'enable radio' command to the modem."
+                echo "Use when modem is detected but not registering."
+                echo ""
+                read -p "Proceed? (y/n): " confirm
+                [[ "$confirm" != "y" && "$confirm" != "Y" ]] && { echo "Cancelled."; pause; continue; }
+                
+                echo ""
+                if mmcli -m "$modem_idx" -e 2>/dev/null; then
+                    echo -e "${GREEN}✓ Modem radio enabled successfully${NC}"
+                    echo ""
+                    echo "Checking registration status..."
+                    sleep 5
+                    local reg=$(echo "$modem_info" | grep -A10 "3gpp:" | grep "registration:" | awk -F': ' '{print $2}' | xargs || echo "unknown")
+                    echo "Registration: $reg"
+                else
+                    echo -e "${RED}✗ Failed to enable modem radio${NC}"
+                    echo "Possible causes:"
+                    echo "  - Modem not detected (check 'Restart Modem Stack')"
+                    echo "  - SIM locked (check PIN status in main view)"
+                    echo "  - Hardware issue"
+                fi
+                pause
+                ;;
+                
+            6)
+                header
+                echo "DELETE LTE CONFIGURATION"
+                echo "========================"
+                echo -e "${RED}WARNING: This will permanently delete${NC}"
+                echo -e "${RED}your APN/PIN settings and connection profile${NC}"
+                echo ""
+                read -p "Are you sure? (type 'yes' to confirm): " confirm
+                if [[ "$confirm" != "yes" ]]; then
+                    echo "Cancelled."
+                    pause
+                    continue
+                fi
+                
+                echo ""
+                echo "Deleting LTE connection..."
+                if nmcli connection delete lte 2>/dev/null; then
+                    echo -e "${GREEN}✓ LTE configuration deleted${NC}"
+                else
+                    echo -e "${YELLOW}⊘ No LTE connection to delete${NC}"
+                fi
+                pause
+                ;;
+                
+            0) return ;;
+            *) echo -e "${RED}Invalid option${NC}"; pause ;;
+        esac
+    done
+}
+
+# Network Test
+network_test() {
+    header
+    echo "NETWORK CONNECTIVITY TEST"
+    echo "========================="
+    
+    echo -e "${YELLOW}Pinging Google DNS (8.8.8.8)...${NC}"
+    if nc -z -w 3 8.8.8.8 53 &>/dev/null; then
+        echo -e "${GREEN}✓ Internet connectivity: OK${NC}"
+    else
+        echo -e "${RED}✗ Internet connectivity: FAILED${NC}"
+    fi
+    
+    echo ""
+    echo "Current IP Addresses:"
+    echo "---------------------"
+    for iface in wlan0 wwan0 usb0; do
+        if ip link show "$iface" &>/dev/null; then
+            ipaddr=$(ip -br addr show "$iface" 2>/dev/null | awk '{print $3}' | cut -d/ -f1 | head -1)
+            if [[ -n "$ipaddr" ]]; then
+				echo -n "$iface: $ipaddr"
+				curl --interface $iface --connect-timeout 10  -s https://icanhazip.com --output /dev/null && echo -e " // ${GREEN}✓Connected to internet${NC}" || echo -e " // ${RED}✗NO internet${NC}"			
+			fi			
+        fi
+    done
+    
+    pause
+}
+
+# Device Tree Selection
+device_tree_menu() {
+    local boot_dtb_dir="/boot/dtbs/qcom"
+    local extlinux="/boot/extlinux/extlinux.conf"
+    
+    # Available DTBs
+    local dtbs=(
+        "msm8916-fy-mf800.dtb"
+        "msm8916-hmuf02_v5.dtb"
+        "msm8916-jz01-45-v33.dtb"
+        "msm8916-yiming-uz801v3.dtb"
+    )
+    
+    header
+    echo "DEVICE TREE SELECTION"
+    echo "====================="
+    echo "Current device tree in extlinux.conf:"
+    grep "fdt" "$extlinux" 2>/dev/null || echo "Not found"
+    echo ""
+    
+    echo "Available DTBs in $boot_dtb_dir:"
+    for i in "${!dtbs[@]}"; do
+        if [[ -f "$boot_dtb_dir/${dtbs[$i]}" ]]; then
+            echo -e "$((i+1))) ${dtbs[$i]} ${GREEN}[FOUND]${NC}"
+        else
+            echo -e "$((i+1))) ${dtbs[$i]} ${RED}[MISSING]${NC}"
+        fi
+    done
+    echo "0) Cancel"
+    echo ""
+    read -p "Select DTB [0-4]: " choice
+    
+    [[ "$choice" == "0" ]] && return
+    ((choice < 1 || choice > ${#dtbs[@]})) && { echo -e "${RED}Invalid selection${NC}"; pause; return; }
+    
+    local selected_dtb="${dtbs[$((choice-1))]}"
+    local dtb_path="$boot_dtb_dir/$selected_dtb"
+    
+    if [[ ! -f "$dtb_path" ]]; then
+        echo -e "${RED}DTB file not found: $dtb_path${NC}"
+        pause
+        return
+    fi
+    
+    header
+    echo "Device Tree Selection"
+    echo "====================="
+    echo "Selected: $selected_dtb"
+    echo ""
+    echo -e "${YELLOW}WARNING: This will:${NC}"
+    #echo "  1. Copy DTB to $boot_boot_dtb_dir/"
+    echo "  1. Backup current extlinux.conf"
+    echo "  2. Update FDT path in extlinux.conf"
+    echo ""
+    read -p "Proceed? (y/n): " confirm
+    [[ "$confirm" != "y" && "$confirm" != "Y" ]] && { echo "Cancelled."; pause; return; }
+    
+    # Backup extlinux.conf
+    sudo cp "$extlinux" "${extlinux}.backup.$(date +%Y%m%d_%H%M%S)"
+    echo "Backup created: ${extlinux}.backup.*"
+    
+    # Copy DTB
+    #echo "Copying DTB..."
+    #sudo cp "$dtb_path" "$boot_boot_dtb_dir/"
+    
+    # Update extlinux.conf
+    echo "Updating extlinux.conf..."
+    local current_dtb=$(grep "fdt" "$extlinux" | grep -oP 'msm8916-[^ ]*\.dtb' | head -1 | sed 's/\.dtb$//')
+    local new_dtb=$(basename "$selected_dtb" .dtb)
+    
+    if [[ -n "$current_dtb" ]]; then
+        sudo sed -i "s/$current_dtb/$new_dtb/g" "$extlinux"
+    else
+        echo -e "${YELLOW}Could not auto-detect current DTB. Please verify extlinux.conf manually.${NC}"
+    fi
+    
+    echo -e "${GREEN}Device tree updated successfully!${NC}"
+    echo "Reboot required for changes to take effect."
+    pause
+}
+
+# Expand RootFS
+expand_rootfs() {
+    header
+    echo "EXPAND ROOT FILESYSTEM"
+    echo "======================"
+    
+    ROOTFS_SOURCE=$(findmnt -n -o SOURCE / 2>/dev/null)
+    
+    if [[ -z "$ROOTFS_SOURCE" ]]; then
+        echo -e "${RED}Could not determine root filesystem source${NC}"
+        pause
+        return
+    fi
+    
+    echo "Root filesystem source: $ROOTFS_SOURCE"
+    
+    # Get partition size in GB
+    rootbytes=$(sudo fdisk -l --bytes 2>/dev/null | grep -A2 -E "^Disk $ROOTFS_SOURCE|^$ROOTFS_SOURCE" | grep "$ROOTFS_SOURCE" | awk '{printf "%.1f\n", $5/1073741824}' | head -1)
+    
+    # Get filesystem usage in GB
+    fssize=$(df -BM --output=size,target | awk '$2 == "/" {gsub(/M/, ""); printf "%.1f\n", $1/1000; exit}')
+    
+    if [[ -z "$rootbytes" || -z "$fssize" ]]; then
+        echo -e "${RED}Could not determine sizes. Aborting.${NC}"
+        pause
+        return
+    fi
+    
+    difference=$(echo "$rootbytes - $fssize" | bc 2>/dev/null || echo 0)
+    
+    echo "Partition size : $rootbytes GB"
+    echo "Filesystem size: $fssize GB"
+    echo "Available space: $difference GB"
+    echo ""
+    
+    if (( $(echo "$difference >= 0.5" | bc -l 2>/dev/null || echo 0) )); then
+        echo -e "${YELLOW}Expanding filesystem...${NC}"
+        sudo resize2fs "$ROOTFS_SOURCE"
+        echo -e "${GREEN}Resize completed successfully!${NC}"
+    else
+        echo -e "${YELLOW}Available space <$difference GB - nothing to expand${NC}"
+    fi
+    
+    pause
+}
+
+# CPU Management
+cpu_menu() {
+	get_cpu_temp() {
+		# Lee la temperatura y la divide entre 1000 para obtener grados Celsius
+		cat /sys/class/thermal/thermal_zone0/temp | awk '{print $1/1000}'
+	}
+    while true; do
+        header
+        echo "CPU MANAGEMENT"
+        echo "=============="
+        CPU_TEMP=$(get_cpu_temp)
+		echo -e "${GREEN}[CPU] Temp: ${CPU_TEMP}°C${NC}"
+		echo "=============="
+        # Show current CPU status
+        echo -e "${YELLOW}Current CPU Status:${NC}"
+        for cpu in /sys/devices/system/cpu/cpu[0-9]; do
+            [[ -d "$cpu" ]] || continue
+            online=$(cat "$cpu/online" 2>/dev/null || echo "1")
+            freq=$(cat "$cpu/cpufreq/scaling_cur_freq" 2>/dev/null | head -1 | awk '{printf "%.3f", $1/1000000}'|| echo "N/A")
+            governor=$(cat "$cpu/cpufreq/scaling_governor" 2>/dev/null || echo "N/A")
+            status="${GREEN}ONLINE${NC}"
+            [[ "$online" == "0" ]] && status="${RED}OFFLINE${NC}"
+            echo -e "CPU $(basename $cpu): $status | Freq: $freq GHz | Governor: $governor"
+        done
+        
+        echo ""
+        echo "1) Disable CPU Cores 1-3 (Single Core Mode)"
+        echo "2) Restore All CPU Cores"
+        echo "3) Set CPU to 200 MHz (Low Power)"
+        echo "4) Set CPU to 1.8 GHz (Performance)"
+        echo "5) Reset to Default Governor"
+        echo "0) Back to Main Menu"
+        echo ""
+        read -p "Select option [0-5]: " choice
+
+        case $choice in
+            1)
+                header
+                echo "Disabling CPU cores 1-3..."
+                for cpu in 1 2 3; do
+                    if [[ -f /sys/devices/system/cpu/cpu$cpu/online ]]; then
+                        echo 0 | sudo tee /sys/devices/system/cpu/cpu$cpu/online >/dev/null
+                        echo "CPU$cpu disabled"
+                    fi
+                done
+                echo -e "${GREEN}Single core mode activated${NC}"
+                pause
+                ;;
+            2)
+                header
+                echo "Restoring all CPU cores..."
+                for cpu in 1 2 3; do
+                    if [[ -f /sys/devices/system/cpu/cpu$cpu/online ]]; then
+                        echo 1 | sudo tee /sys/devices/system/cpu/cpu$cpu/online >/dev/null
+                        echo "CPU$cpu enabled"
+                    fi
+                done
+                echo -e "${GREEN}All cores restored${NC}"
+                pause
+                ;;
+            3)
+                header
+                echo "Setting CPU to 200 MHz (Low Power)..."
+                echo userspace | sudo tee /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor >/dev/null
+                echo 200000 | sudo tee /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq >/dev/null
+                echo 200000 | sudo tee /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq >/dev/null
+                echo -e "${GREEN}CPU locked to 200 MHz${NC}"
+                echo -e "${YELLOW}Note: This is temporary. Reboot will reset settings.${NC}"
+                pause
+                ;;
+            4)
+                header
+                echo "Setting CPU to 1.8 GHz (Performance)..."
+                echo userspace | sudo tee /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor >/dev/null
+                echo 1800000 | sudo tee /sys/devices/system/cpu/cpu0/cpufreq/scaling_setspeed >/dev/null 2>/dev/null || {
+                    echo 1800000 | sudo tee /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq >/dev/null
+                    echo 1800000 | sudo tee /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq >/dev/null
+                }
+                echo -e "${GREEN}CPU set to 1.8 GHz${NC}"
+                echo -e "${YELLOW}Note: This is temporary. Reboot will reset settings.${NC}"
+                pause
+                ;;
+            5)
+                header
+                echo "Resetting to default governor..."
+                echo powersave | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor >/dev/null 2>&1 || true
+                echo -e "${GREEN}Governor reset to powersave${NC}"
+                pause
+                ;;
+            0) return ;;
+            *) echo -e "${RED}Invalid option${NC}"; pause ;;
+        esac
+    done
+}
+
+# Main Menu
+main_menu() {
+    while true; do
+        header
+        echo "MAIN MENU"
+        echo "========="
+        echo "1) USB Gadget Setup"
+        echo "2) WiFi Management"
+        echo "3) 4G/LTE Setup"
+        echo "4) Network Test (Ping + IP)"
+        echo "5) Device Tree Selection"
+        echo "6) Expand Root Filesystem"
+        echo "7) CPU Management"
+        echo "0) Exit"
+        echo ""
+        read -p "Select option [0-7]: " choice
+
+        case $choice in
+            1) usb_menu ;;
+            2) wifi_menu ;;
+            3) lte_menu ;;
+            4) network_test ;;
+            5) device_tree_menu ;;
+            6) expand_rootfs ;;
+            7) cpu_menu ;;
+            0) 
+                echo "Goodbye!"
+                exit 0
+                ;;
+            *) 
+                echo -e "${RED}Invalid option${NC}"
+                pause
+                ;;
+        esac
+    done
+}
+
+# Entry point
+main_menu

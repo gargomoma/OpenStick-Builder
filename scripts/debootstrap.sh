@@ -63,6 +63,10 @@ chmod +x ${CHROOT}/etc/rc.local
 # add interfaces (ifupdown2)
 cp -a configs/interfaces ${CHROOT}/etc/network/
 
+# add Extras
+cp -a extras/openstick-manager ${CHROOT}/usr/local/bin
+cp -a extras/cpu-stats ${CHROOT}/usr/local/bin
+
 # add MSM8916 USB gadget
 cp -a configs/msm8916-usb-gadget.sh ${CHROOT}/usr/sbin/
 cp configs/msm8916-usb-gadget.conf ${CHROOT}/etc/
