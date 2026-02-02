@@ -65,7 +65,9 @@ cp -a configs/interfaces ${CHROOT}/etc/network/
 
 # add Extras
 cp -a extras/openstick-manager ${CHROOT}/usr/local/bin
+sudo chmod +x /usr/local/bin/openstick-manager
 cp -a extras/cpu-stats ${CHROOT}/usr/local/bin
+sudo chmod +x /usr/local/bin/cpu-stats
 
 # add MSM8916 USB gadget
 cp -a configs/msm8916-usb-gadget.sh ${CHROOT}/usr/sbin/
