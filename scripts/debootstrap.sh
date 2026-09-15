@@ -67,6 +67,9 @@ cp -a configs/interfaces ${CHROOT}/etc/network/
 cp -a configs/msm8916-usb-gadget.sh ${CHROOT}/usr/sbin/
 cp configs/msm8916-usb-gadget.conf ${CHROOT}/etc/
 
+# add openstick-manager
+cp -a configs/openstick-manager ${CHROOT}/usr/local/bin
+
 # setup systemd services
 cp -a configs/system/* ${CHROOT}/etc/systemd/system
 
@@ -78,7 +81,8 @@ chmod 0600 ${CHROOT}/etc/NetworkManager/system-connections/*
 cp configs/99-custom.conf ${CHROOT}/etc/NetworkManager/conf.d/
 
 # install kernel
-wget -O - https://mirror.postmarketos.org/postmarketos/main/aarch64/linux-postmarketos-qcom-msm8916-6.12.1-r5.apk \
+# linux-postmarketos-qcom-msm8916-6.12.1-r6.apk
+wget -O - https://files.catbox.moe/q9aw6l.apk \
     | tar xkzf - -C ${CHROOT} --exclude=.PKGINFO --exclude=.SIGN* 2>/dev/null
 
 mkdir -p ${CHROOT}/boot/extlinux
