@@ -82,7 +82,7 @@ cp configs/99-custom.conf ${CHROOT}/etc/NetworkManager/conf.d/
 
 # install kernel
 # linux-postmarketos-qcom-msm8916-6.12.1-r6.apk
-wget -O - https://files.catbox.moe/q9aw6l.apk \
+wget -O - https://files.catbox.moe/f7q1z1.apk \
     | tar xkzf - -C ${CHROOT} --exclude=.PKGINFO --exclude=.SIGN* 2>/dev/null
 
 mkdir -p ${CHROOT}/boot/extlinux
