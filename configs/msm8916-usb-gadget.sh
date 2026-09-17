@@ -139,6 +139,12 @@ setup_gadget() {
 
     # Load required modules
     modprobe libcomposite
+    # Load the gadget function drivers explicitly BY NAME. configfs would
+    # normally autoload them when 'mkdir functions/<f>' runs, but that needs a
+    # populated modules.alias; loading by name works regardless (uses modules.dep).
+    for _m in u_ether u_serial usb_f_rndis usb_f_ecm usb_f_ncm usb_f_acm usb_f_mass_storage; do
+        modprobe "$_m" 2>/dev/null || true
+    done
 
     # Mount configfs if not already mounted
     if ! mountpoint -q /sys/kernel/config; then

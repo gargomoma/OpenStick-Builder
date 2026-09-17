@@ -85,6 +85,14 @@ cp configs/99-custom.conf ${CHROOT}/etc/NetworkManager/conf.d/
 wget -O - https://files.catbox.moe/f7q1z1.apk \
     | tar xkzf - -C ${CHROOT} --exclude=.PKGINFO --exclude=.SIGN* 2>/dev/null
 
+# The kernel .apk is only UNTARRED here, so its apk post-install (which runs
+# depmod) never fires and modules.alias ships EMPTY -> the kernel cannot
+# autoload modules by alias: USB gadget functions (usb_f_rndis/usb_f_acm), the
+# bridge module (br0) and nf_tables all fail to load, so the dongle enumerates
+# but RNDIS networking / DHCP never come up. Regenerate modules.* in the chroot.
+KVER="$(ls ${CHROOT}/lib/modules | head -1)"
+chroot ${CHROOT} qemu-aarch64-static /sbin/depmod -a "${KVER}"
+
 mkdir -p ${CHROOT}/boot/extlinux
 cp configs/extlinux.conf ${CHROOT}/boot/extlinux
 
