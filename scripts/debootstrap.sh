@@ -65,10 +65,15 @@ cp -a configs/interfaces ${CHROOT}/etc/network/
 
 # add MSM8916 USB gadget
 cp -a configs/msm8916-usb-gadget.sh ${CHROOT}/usr/sbin/
+chmod +x ${CHROOT}/usr/sbin/msm8916-usb-gadget.sh
 cp configs/msm8916-usb-gadget.conf ${CHROOT}/etc/
 
 # add openstick-manager
 cp -a configs/openstick-manager ${CHROOT}/usr/local/bin
+# cp -a preserves the repo file mode (non-executable), and /usr/local/bin is not
+# in sudo's secure_path -> 'Permission denied' / 'command not found'. Make it
+# executable so openstick-manager (which self-elevates) runs.
+chmod +x ${CHROOT}/usr/local/bin/openstick-manager
 
 # setup systemd services
 cp -a configs/system/* ${CHROOT}/etc/systemd/system
