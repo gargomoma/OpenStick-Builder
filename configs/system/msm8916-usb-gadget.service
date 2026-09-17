@@ -11,6 +11,11 @@ RemainAfterExit=yes
 ExecStart=/usr/sbin/msm8916-usb-gadget.sh start
 ExecStop=/usr/sbin/msm8916-usb-gadget.sh stop
 ExecReload=/usr/sbin/msm8916-usb-gadget.sh restart
+# If the gadget bring-up loses a boot race (configfs function drivers not yet
+# registerable), retry until it succeeds instead of failing the boot.
+Restart=on-failure
+RestartSec=2
+StartLimitIntervalSec=0
 
 [Install]
 WantedBy=multi-user.target

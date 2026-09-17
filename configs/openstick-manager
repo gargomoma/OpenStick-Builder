@@ -56,6 +56,52 @@ pause() {
 }
 
 # USB Gadget Management
+
+# Toggle the USB gadget ENABLE_* flags in the config, no hand-editing needed.
+GADGET_CONF="/etc/msm8916-usb-gadget.conf"
+_conf_get() { grep -E "^$1=" "$GADGET_CONF" 2>/dev/null | head -1 | sed -E "s/^$1=([^ #]*).*/\1/"; }
+_conf_set() {
+    if grep -qE "^$1=" "$GADGET_CONF"; then
+        sed -i -E "s|^($1=)[^ #]*|\1$2|" "$GADGET_CONF"
+    else
+        echo "$1=$2" >> "$GADGET_CONF"
+    fi
+}
+_toggle() { [ "$(_conf_get "$1")" = "1" ] && _conf_set "$1" 0 || _conf_set "$1" 1; }
+_onoff() { [ "$(_conf_get "$1")" = "1" ] && echo -e "${GREEN}ON${NC}" || echo -e "${RED}off${NC}"; }
+
+gadget_options_menu() {
+    check_sudo required
+    while true; do
+        header
+        echo "USB GADGET FUNCTIONS"
+        echo "===================="
+        echo -e "1) RNDIS ethernet (Windows)        : $(_onoff ENABLE_RNDIS)"
+        echo -e "2) CDC ECM ethernet                : $(_onoff ENABLE_ECM)"
+        echo -e "3) CDC NCM ethernet                : $(_onoff ENABLE_NCM)"
+        echo -e "4) ACM serial console              : $(_onoff ENABLE_ACM)"
+        echo -e "5) UMS mass storage                : $(_onoff ENABLE_UMS)"
+        echo -e "6) OTG host mode (disables gadget!): $(_onoff ENABLE_OTG_HOST)"
+        echo    "7) Set ACM port count (now: $(_conf_get ACM_COUNT))"
+        echo    "8) Apply now (restart gadget)"
+        echo    "0) Back"
+        echo ""
+        read -p "Toggle/select [0-8]: " g
+        case $g in
+            1) _toggle ENABLE_RNDIS ;;
+            2) _toggle ENABLE_ECM ;;
+            3) _toggle ENABLE_NCM ;;
+            4) _toggle ENABLE_ACM ;;
+            5) _toggle ENABLE_UMS ;;
+            6) _toggle ENABLE_OTG_HOST ;;
+            7) read -p "ACM port count (1-3): " n; case "$n" in [1-3]) _conf_set ACM_COUNT "$n";; *) echo -e "${RED}1-3 only${NC}"; pause;; esac ;;
+            8) echo "Restarting USB gadget..."; msm8916-usb-gadget.sh restart && echo -e "${GREEN}Applied.${NC}"; pause ;;
+            0) return ;;
+            *) echo -e "${RED}Invalid option${NC}"; pause ;;
+        esac
+    done
+}
+
 usb_menu() {
     while true; do
         header
@@ -65,9 +111,10 @@ usb_menu() {
         echo "2) Stop USB Gadget"
         echo "3) Start USB Gadget"
         echo "4) Check USB Gadget Status"
+        echo "5) Configure Gadget Functions (toggle menu)"
         echo "0) Back to Main Menu"
         echo ""
-        read -p "Select option [0-4]: " choice
+        read -p "Select option [0-5]: " choice
 
         case $choice in
             1) 
@@ -96,6 +143,7 @@ usb_menu() {
                 sudo msm8916-usb-gadget.sh status
                 pause
                 ;;
+            5) gadget_options_menu ;;
             0) return ;;
             *) echo -e "${RED}Invalid option${NC}"; pause ;;
         esac
