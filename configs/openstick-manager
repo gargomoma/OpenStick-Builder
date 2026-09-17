@@ -795,13 +795,18 @@ device_tree_menu() {
     local boot_dtb_dir="/boot/dtbs/qcom"
     local extlinux="/boot/extlinux/extlinux.conf"
     
-    # Available DTBs
-    local dtbs=(
-        "msm8916-fy-mf800.dtb"
-        "msm8916-hmuf02_v5.dtb"
-        "msm8916-jz01-45-v33.dtb"
-        "msm8916-yiming-uz801v3.dtb"
-    )
+    # Available DTBs: enumerated at runtime from the boot dtb dir (not a static
+    # list) so any *.dtb dropped into /boot/dtbs/qcom is offered automatically.
+    local dtbs=()
+    local _f
+    for _f in "$boot_dtb_dir"/*.dtb; do
+        [ -e "$_f" ] || continue
+        dtbs+=("$(basename "$_f")")
+    done
+    if [ ${#dtbs[@]} -eq 0 ]; then
+        header; echo "DEVICE TREE SELECTION"; echo "====================="
+        echo -e "${RED}No .dtb files found in $boot_dtb_dir${NC}"; pause; return
+    fi
     
     header
     echo "DEVICE TREE SELECTION"
@@ -820,7 +825,7 @@ device_tree_menu() {
     done
     echo "0) Cancel"
     echo ""
-    read -p "Select DTB [0-4]: " choice
+    read -p "Select DTB [0-${#dtbs[@]}]: " choice
     
     [[ "$choice" == "0" ]] && return
     ((choice < 1 || choice > ${#dtbs[@]})) && { echo -e "${RED}Invalid selection${NC}"; pause; return; }
