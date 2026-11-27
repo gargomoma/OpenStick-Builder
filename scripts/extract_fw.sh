@@ -49,6 +49,10 @@ echo "${SHA256} ${TMPDIR}/${FNAME}" | sha256sum -c
 
 unzip -o -j -d files/ ${TMPDIR}/${FNAME} ${FNAME%.*}/rpm.mbn ${FNAME%.*}/sbl1.mbn ${FNAME%.*}/tz.mbn
 
+# The Qualcomm license allows redistributing these binaries only together with
+# its terms (section 1.2 iii), so ship the LICENSE next to them.
+unzip -p ${TMPDIR}/${FNAME} ${FNAME%.*}/LICENSE > files/LICENSE.qcom-db410c
+
 cleanup() {
     rm -rf ${TMPDIR}
     exit "$1"

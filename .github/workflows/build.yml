@@ -30,6 +30,24 @@ jobs:
       - name: Build gadget-tool
         run: sudo sh -e scripts/build_gt.sh
 
+      - name: Set up Go (dongie-ims)
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: false
+
+      - name: Add Rust target (dongie-rs, muxtastic)
+        run: rustup target add aarch64-unknown-linux-musl
+
+      - name: Set up Zig (C cross compiler for muxtastic)
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: Stage extras
+        # as root (dist/ belongs to root), but with the runner's Go/Rust toolchains
+        run: sudo env "PATH=$PATH" "HOME=$HOME" sh -e scripts/build_extras.sh
+
       - name: Create images
         run: sudo sh -e scripts/build_images.sh
 

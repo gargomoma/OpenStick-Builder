@@ -1,0 +1,168 @@
+#!/bin/bash
+# SPDX-License-Identifier: EUPL-1.2
+# fix-attach-apn — make the modem attach to LTE with the right APN for the inserted SIM.
+#
+# Why: the UZ801 modem firmware (2015) re-seeds its LTE initial-attach profile
+# (QMI 3GPP profile 3, "qdp_profile") at every modem boot with APN
+# 'mobile.three.com.hk' (Three Hong Kong). With that APN, Orange/Simyo never lets
+# the stick register on LTE ("Network timeout" / "registration-denied").
+# ModemManager/NetworkManager can't set it (old firmware rejects MM's profile
+# update with QMI error 81), but a plain `qmicli --wds-modify-profile` works.
+#
+# The attach APN is picked from the SIM's MCC+MNC (table below; extend it or
+# override in /etc/default/fix-attach-apn). For an unknown SIM nothing is changed.
+# After a change the modem is power-cycled and the matching NetworkManager
+# connection is brought up (one connection per SIM, bound with gsm.sim-operator-id).
+#
+# The same APN is also written into that NetworkManager connection when it
+# still uses gsm.auto-config (APN from mobile-broadband-provider-info) or holds
+# another APN from this table (an earlier SIM). Since Debian 13 the provider
+# database lists 'internetmas' first for 21403, which Simyo/Orange prepaid
+# rejects ("Call failed"). An APN typed in by hand (not in the table) is kept.
+#
+# Runs once at boot (fix-attach-apn.service). Logs go to the journal.
+# Set up 2026-11-24 on a UZ801. Credit for the diagnosis: Alejandro.
+
+# MCCMNC  -> "attach-APN  NetworkManager-connection  [user password]"
+declare -A SIMS=(
+  [21403]="orangeworld   lte"           # Orange ES (also Simyo)
+  [21401]="airtelwap.es  lte-vodafone  wap@wap wap125"  # Vodafone ES
+  [21407]="telefonica.es lte-movistar"  # Movistar ES
+  [26201]="internet.telekom lte-telekom" # Telekom DE
+  [26203]="internet      lte-o2"        # O2 DE
+  [26207]="internet      lte-o2-legacy" # O2 DE (older O2 SIMs)
+)
+PROFILE="${PROFILE:-3}"
+DEV="${DEV:-/dev/wwan0qmi0}"
+SIM_WAIT="${SIM_WAIT:-240}"   # seconds to wait for the SIM to be readable (PIN unlock by NM)
+FALLBACK_CONN="${FALLBACK_CONN:-lte}"  # used when the per-SIM connection does not exist
+# shellcheck disable=SC1091
+[ -r /etc/default/fix-attach-apn ] && . /etc/default/fix-attach-apn
+
+QMI="qmicli -p -d $DEV"
+log() { echo "fix-attach-apn: $*"; }
+
+# wait for ModemManager to see the modem and the QMI port to exist (max ~2 min)
+for i in $(seq 1 60); do
+  [ -e "$DEV" ] && mmcli -m any >/dev/null 2>&1 && break
+  sleep 2
+done
+if ! mmcli -m any >/dev/null 2>&1; then
+  log "modem never showed up in ModemManager, giving up"; exit 1
+fi
+
+# The SIM's MCC+MNC is only readable once the PIN is entered (NetworkManager
+# does that with the PIN stored in the connection), so wait for it.
+sim_code() {
+  local sim
+  sim=$(mmcli -m any -K 2>/dev/null | awk -F': ' '/^modem.generic.sim /{gsub(/ /,"",$2); print $2}')
+  [ -n "$sim" ] && [ "$sim" != "--" ] || return
+  mmcli -i "$sim" -K 2>/dev/null | awk -F': ' '/^sim.properties.operator-code /{gsub(/ /,"",$2); print $2}'
+}
+code=""
+for i in $(seq 1 $((SIM_WAIT / 3))); do
+  code="$(sim_code)"
+  [[ "$code" =~ ^[0-9]{5,6}$ ]] && break
+  code=""
+  sleep 3
+done
+if [ -z "$code" ]; then
+  log "SIM operator code not readable after ${SIM_WAIT}s (no SIM / PIN not entered?), leaving the modem alone"
+  exit 0
+fi
+if [ -z "${SIMS[$code]}" ]; then
+  log "SIM $code is not in the table, leaving the attach APN alone"
+  exit 0
+fi
+read -r APN CONN APN_USER APN_PASS <<<"${SIMS[$code]}"
+
+# The per-SIM connection if the image has one, else the generic one.
+if ! nmcli -t -f NAME con show | grep -qx "$CONN"; then
+  if nmcli -t -f NAME con show | grep -qx "$FALLBACK_CONN"; then
+    CONN="$FALLBACK_CONN"
+  else
+    log "NetworkManager has no connection '$CONN' for SIM $code; autoconnect decides"
+    CONN=""
+  fi
+fi
+
+# Write the APN into the NetworkManager connection (see the header).
+# Sets nm_changed=1 when it did.
+nm_changed=""
+known_apn() {
+  local v
+  for v in "${SIMS[@]}"; do [ "${v%% *}" = "$1" ] && return 0; done
+  return 1
+}
+fix_nm_apn() {
+  [ -n "$CONN" ] || return 0
+  local auto cur
+  auto="$(nmcli -g gsm.auto-config con show "$CONN" 2>/dev/null)"
+  cur="$(nmcli -g gsm.apn con show "$CONN" 2>/dev/null)"
+  if [ "$cur" = "$APN" ] && [ "$auto" != "yes" ]; then
+    return 0
+  fi
+  if [ "$auto" != "yes" ] && [ -n "$cur" ] && ! known_apn "$cur"; then
+    log "$CONN has APN '$cur' set by hand, keeping it"
+    return 0
+  fi
+  local args=(gsm.auto-config no gsm.apn "$APN")
+  if [ -n "$APN_USER" ]; then
+    args+=(gsm.username "$APN_USER" gsm.password "$APN_PASS" gsm.password-flags 0)
+  fi
+  if nmcli con modify "$CONN" "${args[@]}"; then
+    log "$CONN: APN '${cur:-auto}' -> '$APN'"
+    nm_changed=1
+  else
+    log "nmcli con modify $CONN FAILED"
+  fi
+}
+
+bring_up() {
+  [ -n "$CONN" ] || exit 0
+  for i in $(seq 1 3); do
+    if timeout 100 nmcli con up "$CONN" >/dev/null 2>&1; then
+      log "$CONN connection up"; exit 0
+    fi
+    log "nmcli con up $CONN attempt $i failed, retrying"
+    sleep 10
+  done
+  log "$CONN did not come up yet; NetworkManager autoconnect will keep trying"
+  exit 0
+}
+
+fix_nm_apn
+
+get_apn() {
+  $QMI --wds-get-profile-list=3gpp 2>/dev/null | awk -v p="[$PROFILE]" '
+    $1 == p { found = 1; next }
+    found && /APN:/ { s = $0; sub(/.*APN: \x27/, "", s); sub(/\x27.*/, "", s); print s; exit }
+    found && /^\t\[/ { exit }'
+}
+
+cur="$(get_apn)"
+if [ "$cur" = "$APN" ]; then
+  if [ -n "$nm_changed" ]; then
+    log "SIM $code: profile $PROFILE already has APN '$APN'"
+    bring_up
+  fi
+  log "SIM $code: profile $PROFILE already has APN '$APN', nothing to do"
+  exit 0
+fi
+
+log "SIM $code: profile $PROFILE has APN '$cur', setting it to '$APN'"
+if ! $QMI --wds-modify-profile="3gpp,$PROFILE,apn=$APN" >/dev/null 2>&1; then
+  log "qmicli modify-profile FAILED"; exit 1
+fi
+new="$(get_apn)"
+if [ "$new" != "$APN" ]; then
+  log "read-back mismatch: profile $PROFILE has '$new'"; exit 1
+fi
+log "profile $PROFILE now '$new'; power-cycling modem so it re-attaches"
+
+mmcli -m any --disable >/dev/null 2>&1
+sleep 2
+mmcli -m any --enable >/dev/null 2>&1
+
+# NetworkManager may have used up its autoconnect retries meanwhile; kick it.
+bring_up

@@ -25,10 +25,10 @@ iface br0 inet static
         up    iptables -t nat -A PREROUTING -i br0 -p tcp --dport 53 -j REDIRECT --to-ports 53
 
 iface br0 inet6 static
-        address dead:beef::1/64
+        address fdde:ad:beef::1/64
 
         # Enable NAT66
-        up    ip6tables -t nat -A POSTROUTING -s dead:beef::/64 ! -d dead:beef::/64 -j MASQUERADE
+        up    ip6tables -t nat -A POSTROUTING -s fdde:ad:beef::/64 ! -d fdde:ad:beef::/64 -j MASQUERADE
 
         # Prevent DNS leaks
         up    ip6tables -t nat -A PREROUTING -i br0 -p udp --dport 53 -j REDIRECT --to-ports 53

@@ -1,0 +1,30 @@
+#!/bin/sh
+# SPDX-License-Identifier: EUPL-1.2
+# lnsd-setup: runs as root before lnsd starts (lnsd.service ExecStartPre=+).
+# - first start: replace @RPC_KEY@ in /etc/lnsd/config with a random key and
+#   give dongie the same key for its Reticulum tab (/etc/dongie/reticulum/config)
+# - config readable by lnsd only; give the RAM mounts to their users (their uid/gid don't exist at image
+#   build time, so the mount units can't name them)
+set -eu
+CONF=/etc/lnsd/config
+if grep -q '@RPC_KEY@' "$CONF"; then
+    key=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
+    sed -i "s/@RPC_KEY@/$key/" "$CONF"
+    if getent group dongie >/dev/null; then
+        install -d -m 0750 -o root -g dongie /etc/dongie/reticulum
+        umask 027
+        printf '%s\n' \
+            '# client config for lnstatus (dongie Reticulum tab): same rpc_key as /etc/lnsd/config' \
+            '[reticulum]' '  share_instance = Yes' "  rpc_key = $key" > /etc/dongie/reticulum/config
+        chown root:dongie /etc/dongie/reticulum/config
+        chmod 0640 /etc/dongie/reticulum/config
+    fi
+    echo "lnsd-setup: generated this stick's rpc_key"
+fi
+# lnsd reads its config (it holds the rpc_key: not world-readable)
+chown root:lnsd "$CONF"
+chmod 0640 "$CONF"
+chown lnsd:lnsd /run/lnsd
+if getent passwd dongie >/dev/null && mountpoint -q /run/lnmsg; then
+    chown dongie:dongie /run/lnmsg
+fi

@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: EUPL-1.2
+[Unit]
+Description=Fix LTE initial-attach APN in modem profile (firmware resets it to Three HK)
+After=ModemManager.service NetworkManager.service
+Wants=ModemManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/fix-attach-apn
+TimeoutStartSec=420
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

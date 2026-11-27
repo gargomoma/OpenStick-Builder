@@ -1,0 +1,116 @@
+#!/bin/bash
+# SPDX-License-Identifier: EUPL-1.2
+# dongie-leds — status LEDs for MSM8916 sticks, run by dongie-leds.service
+#   WAN LED   on = LTE connected | slow blink = searching/registering/connecting | off = modem off/failed
+#             (boards with a separate red WAN LED, e.g. MF800: red on = modem off/failed)
+#   WLAN LED  on = Tailscale running (if installed), otherwise: Wi-Fi active (hotspot or client)
+#   power LED untouched
+# Polls every 5 s; only writes to sysfs when a state changes (no flicker).
+# Cheap on purpose (measured on a UZ801, CPU per run): the modem state comes
+# from one `busctl` property read (~29 ms; `mmcli` ~70 ms), Wi-Fi from sysfs
+# (no process; `nmcli` ~165 ms), Tailscale from `ip` on tailscale0 (~25 ms,
+# only when it exists; `tailscale status` was the dearest).
+#
+# LEDs are found by their function (sysfs name color:function), so this works on
+#   UZ801 v3, JZ01-45-V33  blue:wan, green:wlan
+#   MF800                  green:wan-online (+ red:wan), green:wlan
+#   HMUF02 v5              LEDs only labelled red/green/blue: green = wan, blue = wlan (table below)
+# Override in /etc/default/dongie-leds: WAN_LED=, WAN_FAIL_LED=, WLAN_LED= (sysfs paths),
+# WLAN_SOURCE=tailscale|wifi, WLAN_IFACE=. DRY_RUN=1 prints what was found and exits.
+
+LEDS=${LEDS:-/sys/class/leds}
+MODEL_FILE=${MODEL_FILE:-/proc/device-tree/model}
+INTERVAL=5
+# shellcheck disable=SC1091
+[ -r /etc/default/dongie-leds ] && . /etc/default/dongie-leds
+
+find_led() { # first existing LED with one of these functions
+  local f p
+  for f in "$@"; do
+    for p in "$LEDS"/*:"$f"; do [ -e "$p" ] && { echo "$p"; return; }; done
+  done
+}
+
+model=$(tr -d '\0' < "$MODEL_FILE" 2>/dev/null)
+case "$model" in
+  msm8916-hmuf02_v5) : "${WAN_LED:=$LEDS/green}" "${WLAN_LED:=$LEDS/blue}" ;;
+esac
+: "${WAN_LED:=$(find_led wan-online wan)}"
+if [ -z "${WAN_FAIL_LED+x}" ]; then
+  WAN_FAIL_LED=""
+  case "$WAN_LED" in *:wan-online) WAN_FAIL_LED=$(find_led wan) ;; esac
+fi
+: "${WLAN_LED:=$(find_led wlan)}"
+if [ -z "$WLAN_SOURCE" ]; then
+  if command -v tailscale >/dev/null; then WLAN_SOURCE=tailscale; else WLAN_SOURCE=wifi; fi
+fi
+if [ -z "$WLAN_IFACE" ]; then # first wireless interface
+  for p in /sys/class/net/*/wireless; do [ -e "$p" ] && { WLAN_IFACE=${p%/wireless}; WLAN_IFACE=${WLAN_IFACE##*/}; break; }; done
+fi
+
+echo "model '${model:-?}': wan=${WAN_LED:-none} wan-fail=${WAN_FAIL_LED:-none} wlan=${WLAN_LED:-none} (${WLAN_SOURCE}${WLAN_IFACE:+, $WLAN_IFACE})"
+[ -n "$DRY_RUN" ] && exit 0
+if [ -z "$WAN_LED$WLAN_LED" ]; then echo "no usable LEDs found, exiting"; exit 0; fi
+
+led_on()    { [ -n "$1" ] || return 0; echo none > "$1/trigger"; echo 1 > "$1/brightness"; }
+led_off()   { [ -n "$1" ] || return 0; echo none > "$1/trigger"; echo 0 > "$1/brightness"; }
+led_blink() { [ -n "$1" ] || return 0; echo timer > "$1/trigger"; echo 300 > "$1/delay_on"; echo 1700 > "$1/delay_off"; }
+
+cleanup() { led_off "$WAN_LED"; led_off "$WAN_FAIL_LED"; led_off "$WLAN_LED"; rm -f "$OUT"; exit 0; }
+trap cleanup TERM INT
+
+# No forks besides busctl itself: on these CPUs every bash fork costs ~10 ms.
+# busctl writes into RAM (/dev/shm) instead of $(...); the wait between rounds
+# is a read with timeout on a pipe nobody writes to, instead of `sleep`.
+MM=org.freedesktop.ModemManager1
+OUT=$(mktemp /dev/shm/dongie-leds.XXXXXX) || exit 1
+exec {WAIT}<> <(:)
+modem=""; state=""
+get_state() { # $state = MMModemState of $modem, if it answers
+  local t v
+  busctl get-property $MM "$modem" $MM.Modem State > "$OUT" 2>/dev/null &&
+    read -r t v < "$OUT" && [ "$t" = i ] && state=$v
+}
+read_state() { # sets $state to the MMModemState number, empty without a modem
+  state=""
+  [ -n "$modem" ] && get_state && return
+  # first run, or ModemManager restarted and numbered the modem anew
+  modem=""
+  busctl tree --list $MM > "$OUT" 2>/dev/null
+  while read -r p; do
+    case "$p" in /org/freedesktop/ModemManager1/Modem/[0-9]*) modem=$p; break ;; esac
+  done < "$OUT"
+  [ -n "$modem" ] && get_state
+}
+
+last_wan=""; last_wlan=""
+while true; do
+  read_state
+  case "$state" in
+    11)              wan=on ;;    # connected
+    2|5|6|7|8|10)    wan=blink ;; # locked, enabling, enabled, searching, registered, connecting
+    *)               wan=off ;;   # failed, unknown, initializing, disabled, disabling, disconnecting, no modem
+  esac
+  if [ "$wan" != "$last_wan" ]; then
+    case "$wan" in on) led_on "$WAN_LED" ;; blink) led_blink "$WAN_LED" ;; off) led_off "$WAN_LED" ;; esac
+    if [ "$wan" = off ]; then led_on "$WAN_FAIL_LED"; else led_off "$WAN_FAIL_LED"; fi
+    echo "wan -> $wan (modem state: ${state:-none})"
+    last_wan=$wan
+  fi
+
+  wlan=off
+  if [ "$WLAN_SOURCE" = tailscale ]; then
+    # Running = tailscaled has put its 100.x address on tailscale0
+    [ -e /sys/class/net/tailscale0 ] && ip -4 -o addr show dev tailscale0 > "$OUT" 2>/dev/null && [ -s "$OUT" ] && wlan=on
+  elif [ -n "$WLAN_IFACE" ]; then
+    # up = hotspot running or joined to a network
+    read -r op < "/sys/class/net/$WLAN_IFACE/operstate" 2>/dev/null && [ "$op" = up ] && wlan=on
+  fi
+  if [ "$wlan" != "$last_wlan" ]; then
+    case "$wlan" in on) led_on "$WLAN_LED" ;; off) led_off "$WLAN_LED" ;; esac
+    echo "wlan -> $wlan ($WLAN_SOURCE)"
+    last_wlan=$wlan
+  fi
+
+  read -r -t "$INTERVAL" -u "$WAIT" _
+done

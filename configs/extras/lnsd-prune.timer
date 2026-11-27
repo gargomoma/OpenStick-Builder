@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: EUPL-1.2
+[Unit]
+Description=Pruning (every 5 min) of lnsd's RAM storage
+# started by lnsd.service (Wants=) and stopped with it (PartOf=)
+PartOf=lnsd.service
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+

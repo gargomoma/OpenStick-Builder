@@ -18,6 +18,10 @@ group=ccmp;
 key-mgmt=wpa-psk
 pairwise=ccmp;
 proto=rsn;
+# wcn36xx cannot install the management-frame key (IGTK) in AP mode; with
+# PMF left to the default, trixie's wpa_supplicant fails with "key setting
+# validation failed" and the hotspot never comes up.
+pmf=1
 psk=1234567890
 
 [ipv4]

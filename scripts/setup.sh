@@ -12,16 +12,26 @@ rm -f "/etc/locale.gen"
 apt update -qqy
 apt upgrade -qqy
 apt autoremove -qqy
+# gt's libconfig: libconfig11 since Debian 13, libconfig9 in Debian 12
+LIBCONFIG=libconfig9
+apt-cache show libconfig11 >/dev/null 2>&1 && LIBCONFIG=libconfig11
+# gpgv: dongie's Update button checks the release signature with it. Debian 13's
+# apt uses sqv instead, so gpgv is no longer pulled in by default.
 apt install -qqy --no-install-recommends \
     bridge-utils \
     dnsmasq \
+    gpgv \
     iptables \
-    libconfig9 \
+    iw \
+    libqmi-utils \
+    ${LIBCONFIG} \
     locales \
     modemmanager \
     netcat-traditional \
     network-manager \
+    nftables \
     openssh-server \
+    polkitd \
     qrtr-tools \
     rmtfs \
     sudo \
@@ -38,12 +48,18 @@ apt install -qqy --no-install-recommends \
     mobile-broadband-provider-info \
     openresolv
 
+# zram swap: 90 % of RAM, zstd (the pmOS kernel has it). The sticks have
+# 384-512 MB and no other swap; zram only holds the compressed pages actually
+# swapped out, so the real RAM it takes stays well below that.
+# zram-tools >= 0.3.7 (Debian 13) uses PERCENT over SIZE when both are set.
+printf 'ALGO=zstd\nPERCENT=90\nPRIORITY=100\n' > /etc/default/zramswap
+
 # Cleanup
 apt clean
 rm -rf /var/lib/apt/lists/*
-rm /etc/machine-id
-rm /var/lib/dbus/machine-id
-rm /etc/ssh/ssh_host_*
+rm -f /etc/machine-id
+rm -f /var/lib/dbus/machine-id
+rm -f /etc/ssh/ssh_host_*
 find /var/log -type f -delete
 
 passwd -dl root
@@ -73,10 +89,7 @@ alias du='du -hs'
 
 EOF
 
-cat <<EOF >> /etc/systemd/journald.conf
-SystemMaxUse=300M
-SystemKeepFree=1G
-EOF
+# journald limits: see configs/extras/journald-flash.conf (scripts/build_extras.sh)
 
 # install dnsproxy
 bash /install_dnsproxy.sh
@@ -86,5 +99,7 @@ systemctl mask systemd-networkd-wait-online.service
 # Prevent the accidental shutdown by power button
 sed -i 's/^#HandlePowerKey=poweroff/HandlePowerKey=ignore/' /etc/systemd/logind.conf
 
-# Enable IPv4 and IPv6 forwarding by uncommenting the relevant lines in /etc/sysctl.conf
-sed -i -e 's/^#net.ipv4.ip_forward=1/net.ipv4.ip_forward=1/' -e 's/^#net.ipv6.conf.all.forwarding=1/net.ipv6.conf.all.forwarding=1/' /etc/sysctl.conf
+# Enable IPv4 and IPv6 forwarding (the bridge's NAT). Its own file: Debian 13
+# no longer ships /etc/sysctl.conf (an upgrade from 12 saves an edited one as
+# /etc/sysctl.conf.dpkg-bak, and forwarding is silently off afterwards).
+printf 'net.ipv4.ip_forward=1\nnet.ipv6.conf.all.forwarding=1\n' > /etc/sysctl.d/99-openstick-forwarding.conf

@@ -1,0 +1,5 @@
+# muxtastic: dongie's Mesh tab edits /etc/muxtastic/muxtastic.toml (writes a
+# temp file next to it and renames it), so group dongie may write there.
+# muxtastic itself runs as a dynamic user and only needs to read it.
+z /etc/muxtastic 0775 root dongie -
+z /etc/muxtastic/muxtastic.toml 0664 root dongie -

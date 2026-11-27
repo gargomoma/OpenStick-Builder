@@ -1,0 +1,11 @@
+#!/bin/sh
+# C cross compiler for aarch64 musl via zig, for Rust crates with C parts
+# (muxtastic: SQLite, aws-lc). Uses `zig` from PATH, else the ziglang Python package.
+# cc-rs adds --target=aarch64-unknown-linux-musl, which zig can't parse: drop it.
+# zig turns on UBSan for unoptimised C; a Rust link has no UBSan runtime.
+for a in "$@"; do shift; case "$a" in --target=*) ;; *) set -- "$@" "$a" ;; esac; done
+if command -v zig >/dev/null; then Z="zig"; else Z="python3 -m ziglang"; fi
+case "$(basename "$0")" in
+    *-ar) exec $Z ar "$@" ;;
+    *)    exec $Z cc -target aarch64-linux-musl -fno-sanitize=undefined "$@" ;;
+esac

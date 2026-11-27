@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: EUPL-1.2
+# dongie's firewall: loads the nftables table "inet dongie" from
+# <state_dir>/firewall.toml (or the defaults) when `firewall = true` in
+# config.toml; removes it when false. Runs at boot before the network, and
+# again when dongie's UI changes the rules (polkit: restart of this unit only).
+[Unit]
+Description=dongie firewall (nftables)
+Documentation=https://github.com/derpyspike/dongie-rs/blob/main/docs/security.md
+DefaultDependencies=no
+Wants=network-pre.target
+Before=network-pre.target shutdown.target
+After=local-fs.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/dongie firewall-apply
+RuntimeDirectory=dongie-firewall
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: EUPL-1.2
+[Unit]
+Description=RAM-only storage for lnsd, capped at 12 MB
+# pulled in by lnsd.service (no [Install]: not mounted while lnsd is off);
+# lnsd-setup gives it to the lnsd user before lnsd starts
+
+[Mount]
+What=tmpfs
+Where=/run/lnsd
+Type=tmpfs
+Options=size=12M,nr_inodes=4096,mode=0700,nosuid,nodev,noexec

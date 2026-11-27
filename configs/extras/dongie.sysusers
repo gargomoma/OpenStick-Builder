@@ -1,0 +1,2 @@
+# dongie-rs service user (polkit + sudoers rules refer to it)
+u dongie - "dongie dashboard" /nonexistent /usr/sbin/nologin

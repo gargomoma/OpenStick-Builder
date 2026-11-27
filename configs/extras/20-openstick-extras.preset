@@ -1,0 +1,8 @@
+# OpenStick-Builder extras. On the first boot (empty /etc/machine-id) systemd
+# applies presets, and Debian enables every unit that has no rule here. These
+# stay off until the user turns them on: dongie-ims would move the SIM's
+# calls to the stick, muxtastic and lnsd need an address first.
+disable dongie-ims.service
+disable muxtastic.service
+# lnsd needs your transport node first (/etc/lnsd/config)
+disable lnsd.service

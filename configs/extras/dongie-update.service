@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: EUPL-1.2
+# Root helper for dongie's "Update" button: verifies the release dongie
+# downloaded (signature by the release key built into the installed dongie,
+# SHA256SUMS, version), installs it, restarts dongie and rolls back if the
+# new version doesn't answer. Started by dongie (polkit), never enabled.
+[Unit]
+Description=dongie update: verify and install a downloaded release
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/dongie update-apply
+RuntimeDirectory=dongie-update
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+TimeoutStartSec=240

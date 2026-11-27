@@ -1,0 +1,2 @@
+# Leviculum lnsd (Reticulum daemon) runs as its own system user
+u lnsd - "Reticulum daemon (Leviculum lnsd)" /nonexistent /usr/sbin/nologin

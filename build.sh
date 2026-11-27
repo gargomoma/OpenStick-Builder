@@ -15,5 +15,8 @@ scripts/debootstrap.sh
 echo "\nBuild gadget-tools\n"
 scripts/build_gt.sh
 
+echo "\nStage extras\n"
+scripts/build_extras.sh
+
 echo "\nCreate images\n"
 scripts/build_images.sh

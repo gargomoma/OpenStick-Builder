@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: EUPL-1.2
+[Unit]
+Description=Reticulum daemon (Leviculum lnsd), storage in RAM only
+Documentation=https://leviculum.network/docs/lnsd-quickstart.html
+After=network-online.target run-lnsd.mount run-lnmsg.mount
+Requires=run-lnsd.mount
+Wants=network-online.target run-lnmsg.mount lnsd-prune.timer
+
+[Service]
+User=lnsd
+Group=lnsd
+# as root: per-stick rpc_key on first start, owners of the RAM mounts
+ExecStartPre=+/usr/local/sbin/lnsd-setup
+ExecStart=/usr/local/bin/lnsd --config /etc/lnsd --storage /run/lnsd --service
+Restart=always
+RestartSec=15
+MemoryHigh=24M
+MemoryMax=40M
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/run/lnsd
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=yes
+Nice=5
+LogRateLimitIntervalSec=10min
+LogRateLimitBurst=40
+
+[Install]
+WantedBy=multi-user.target

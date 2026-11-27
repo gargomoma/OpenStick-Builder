@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# dongie-ims VoLTE opens the modem's DATA6_CNTL QMI channel as an rpmsg_char
+# endpoint (/dev/rpmsgN). ModemManager must not take it: it would make DATA6
+# its primary QMI port and the internet data path on wwan0 stops working.
+SUBSYSTEM=="rpmsg", KERNEL=="rpmsg[0-9]*", ENV{ID_MM_PORT_IGNORE}="1"

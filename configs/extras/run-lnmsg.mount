@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: EUPL-1.2
+[Unit]
+Description=RAM-only state for loquax/lnmsg (dongie's LXMF notifications), capped at 2 MB
+# pulled in by lnsd.service; lnsd-setup gives it to the dongie user
+
+[Mount]
+What=tmpfs
+Where=/run/lnmsg
+Type=tmpfs
+Options=size=2M,nr_inodes=1024,mode=0700,nosuid,nodev,noexec

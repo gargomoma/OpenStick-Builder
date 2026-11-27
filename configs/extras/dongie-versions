@@ -1,0 +1,13 @@
+# Pinned dongie, muxtastic and Tailscale releases, read by scripts/build_extras.sh and flake.nix.
+# After a bump, `nix build .#extras` tells you the new hashes for flake.nix.
+DONGIE_RS_REF=v0.3.0
+DONGIE_IMS_REF=v0.3.0
+MUXTASTIC_REF=v0.2.0
+# Leviculum (Reticulum in Rust): lnsd, lnstatus, loquax (= lnmsg) from the
+# dongie-master branch of github.com/derpyspike/leviculum (upstream + local
+# LXMF fixes), pinned to a commit
+LEVICULUM_REF=cf7cb559a1b8413779bdf59d3ca4ccc267e8a4d2
+# Tailscale: static binaries from pkgs.tailscale.com, checked against this sha256
+# (= the .sha256 file published next to the tarball)
+TAILSCALE_VERSION=1.104.7
+TAILSCALE_SHA256=d6bed2720310b328b861f943d7b4016c5358a9bad60575eb51e8143b79068484

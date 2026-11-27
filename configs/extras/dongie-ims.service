@@ -1,0 +1,30 @@
+[Unit]
+Description=dongie-ims - keep the SIM registered on IMS over VoWiFi
+Documentation=https://github.com/derpyspike/dongie-ims
+After=ModemManager.service NetworkManager.service network-online.target
+Wants=network-online.target
+
+[Service]
+# root: talks to the modem through qmi-proxy and chowns its API socket to group dongie
+ExecStart=/usr/local/bin/dongie-ims -socket /run/dongie-ims/api.sock -group dongie
+Restart=always
+RestartSec=30
+RuntimeDirectory=dongie-ims
+StateDirectory=dongie-ims
+RuntimeDirectoryMode=0755
+# keep /run/dongie-ims (voicemails kept in RAM) across restarts, until reboot
+RuntimeDirectoryPreserve=yes
+Environment=GOMEMLIMIT=40MiB GOGC=50
+MemoryMax=96M
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

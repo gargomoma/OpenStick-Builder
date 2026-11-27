@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: EUPL-1.2
+# dongie: read-only modem queries (qmi-proxy needs root) and the hotspot DHCP leases.
+# Exact argument lists only.
+Defaults:dongie !lecture, !syslog, !pam_session, !use_pty
+dongie ALL=(root) NOPASSWD: \
+  /usr/bin/qmicli -p -d /dev/wwan0qmi0 --nas-get-signal-info, \
+  /usr/bin/qmicli -p -d /dev/wwan0qmi0 --nas-get-rf-band-info, \
+  /usr/bin/qmicli -p -d /dev/wwan0qmi0 --nas-get-serving-system, \
+  /usr/bin/qmicli -p -d /dev/wwan0qmi0 --wds-get-packet-statistics, \
+  /usr/bin/qmicli -p -d /dev/wwan0qmi0 --nas-get-cell-location-info, \
+  /usr/bin/wg show all dump, \
+  /usr/bin/cat /var/lib/NetworkManager/dnsmasq-wlan0.leases

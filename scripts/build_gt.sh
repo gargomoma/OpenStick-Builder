@@ -26,8 +26,11 @@ make -C build DESTDIR=$(pwd)/dist CFLAGS="--sysroot=${CHROOT}" install
 make -C build CFLAGS="--sysroot=${CHROOT}" install
 
 rm -rf build/*
+# gt asks for cmake_minimum_required(VERSION 2.8); CMake >= 4.0 (Ubuntu 26.04)
+# refuses minimums below 3.5 unless told to. Older CMake ignores the setting.
 PKG_CONFIG_PATH=${CHROOT}/usr/lib/pkgconfig:${CHROOT}/usr/lib/aarch64-linux-gnu/pkgconfig \
     cmake -DCMAKE_INSTALL_PREFIX=/usr \
+        -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
         -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
         -DCMAKE_C_FLAGS=-I$(pwd)/dist/usr/include \

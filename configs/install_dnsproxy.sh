@@ -4,7 +4,7 @@
 REPO_OWNER="AdguardTeam"
 REPO_NAME="dnsproxy"
 
-ARGS="--listen 0.0.0.0 --listen :: --port 5353 \
+ARGS="--listen 127.0.0.1 --listen ::1 --port 5353 \
     --bootstrap 8.8.8.8 --bootstrap 2606:4700:4700::1111 \
     --fallback 9.9.9.9 --fallback 2620:fe::9 \
     --upstream [/www.googleadservices.com/]8.8.8.8 --upstream [/ad.doubleclick.net/]8.8.8.8 \

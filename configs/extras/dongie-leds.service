@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: EUPL-1.2
+[Unit]
+Description=Status LEDs for MSM8916 sticks (WAN = LTE, WLAN = Tailscale or Wi-Fi)
+After=ModemManager.service tailscaled.service
+
+[Service]
+ExecStart=/usr/local/sbin/dongie-leds
+Restart=always
+RestartSec=10
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

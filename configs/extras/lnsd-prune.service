@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: EUPL-1.2
+[Unit]
+Description=Prune stale ratchet files from lnsd's RAM storage
+# lnsd keeps every announced ratchet in memory *and* as a 61-byte file, one
+# 4 KB tmpfs page each. Measured against a real transport node: ~70 new files
+# a minute. Deleting files older than 10 min loses nothing while lnsd runs (it
+# still has them in memory); it keeps the 12 MB tmpfs from filling up, and lnsd
+# from logging a warning for every ratchet it can no longer write.
+ConditionPathIsDirectory=/run/lnsd
+
+[Service]
+Type=oneshot
+User=lnsd
+Group=lnsd
+ExecStart=/usr/bin/find /run/lnsd -xdev -type f ( -path /run/lnsd/ratchets/* -o -path /run/lnsd/discovery/* ) -mmin +10 -delete
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/run/lnsd

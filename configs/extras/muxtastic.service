@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: EUPL-1.2
+# muxtastic: shares one Meshtastic node (Wi-Fi, joined to the stick's
+# hotspot) between apps. Everything stays in RAM (storage = "memory"), nothing
+# is written to flash; logs go to the journal.
+[Unit]
+Description=muxtastic — share one Meshtastic node between apps
+Documentation=https://github.com/derpyspike/dongie-rs/tree/main/contrib/muxtastic
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# muxtastic listens on all interfaces (hotspot, USB, Tailscale), but never
+# for the LTE side: drop its two ports (config: server.port, web.port)
+# arriving on wwan* while it runs. "+" = these two run as root.
+# (one rule per port: some stick kernels have no xt_multiport)
+ExecStartPre=+/bin/sh -c 'for t in iptables ip6tables; do for p in 4404 8090; do $t -C INPUT -i wwan+ -p tcp --dport $p -j DROP 2>/dev/null || $t -I INPUT -i wwan+ -p tcp --dport $p -j DROP || exit 1; done; done'
+ExecStopPost=+/bin/sh -c 'for t in iptables ip6tables; do for p in 4404 8090; do while $t -D INPUT -i wwan+ -p tcp --dport $p -j DROP 2>/dev/null; do :; done; done; done'
+ExecStart=/usr/local/bin/muxtastic --config /etc/muxtastic/muxtastic.toml
+DynamicUser=yes
+RuntimeDirectory=muxtastic
+WorkingDirectory=/run/muxtastic
+Restart=always
+RestartSec=10
+# history lives in RAM: if it ever grows past this, muxtastic restarts empty
+MemoryHigh=48M
+MemoryMax=64M
+IPAccounting=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=50
+
+[Install]
+WantedBy=multi-user.target

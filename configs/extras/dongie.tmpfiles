@@ -1,0 +1,5 @@
+# dongie: config readable by the service, users file (argon2id hashes) not world-readable
+d /etc/dongie 0750 root dongie -
+z /etc/dongie/config.toml 0640 root dongie -
+f /etc/dongie/users 0640 root dongie -
+z /etc/dongie/users 0640 root dongie -
